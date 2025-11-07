@@ -1,1 +1,104 @@
-hello
+pipeline {
+  agent any
+
+  options {
+    skipDefaultCheckout(false)
+    timestamps()
+    ansiColor('xterm')
+  }
+
+  stages {
+    stage('Prepare') {
+      steps {
+        // The multibranch job already checks out the branch; ensure workspace content is visible
+        script {
+          echo "Running on node: ${env.NODE_NAME} (isUnix: ${isUnix()})"
+        }
+        // show files so you can debug quickly
+        script {
+          if (isUnix()) {
+            sh 'pwd; ls -la'
+          } else {
+            bat 'cd && dir'
+          }
+        }
+      }
+    }
+
+    stage('Detect & Build') {
+      steps {
+        script {
+          // Example builders for common project types. Remove the ones you don't need.
+          if (fileExists('package.json')) {
+            echo "Node project detected (package.json). Installing & testing..."
+            if (isUnix()) {
+              sh 'npm --version || true'
+              sh 'npm install'
+              sh 'npm test || echo "npm test returned non-zero"'
+            } else {
+              bat 'npm --version || echo npm not found'
+              bat 'npm install'
+              bat 'npm test || echo npm test returned non-zero'
+            }
+          } else if (fileExists('pom.xml')) {
+            echo "Maven project detected (pom.xml). Building with mvn..."
+            if (isUnix()) {
+              sh 'mvn -version || true'
+              sh 'mvn -B clean package'
+            } else {
+              bat 'mvn -version || echo mvn not found'
+              bat 'mvn -B clean package'
+            }
+          } else if (fileExists('requirements.txt') || fileExists('setup.py')) {
+            echo "Python project detected. Installing dependencies..."
+            if (isUnix()) {
+              sh 'python3 --version || true'
+              sh 'python3 -m pip install -r requirements.txt || true'
+            } else {
+              bat 'python --version || echo python not found'
+              bat 'python -m pip install -r requirements.txt || echo pip install returned non-zero'
+            }
+          } else {
+            echo "No recognized build file found. Running a default test: list the workspace."
+            if (isUnix()) {
+              sh 'ls -la'
+            } else {
+              bat 'dir'
+            }
+          }
+        }
+      }
+    }
+
+    stage('Archive') {
+      steps {
+        script {
+          // Archive common build outputs if present
+          if (fileExists('target') || fileExists('dist') || fileExists('build')) {
+            echo "Archiving common artifact directories (target, dist, build) if they exist..."
+          }
+        }
+        archiveArtifacts artifacts: '**/target/**, **/dist/**, **/build/**, **/*.war, **/*.jar, **/*.zip', allowEmptyArchive: true
+      }
+    }
+  }
+
+  post {
+    always {
+      echo "Pipeline finished. Workspace contents (top-level):"
+      script {
+        if (isUnix()) {
+          sh 'ls -la'
+        } else {
+          bat 'dir'
+        }
+      }
+    }
+    failure {
+      echo "Build failed — check console output for details."
+    }
+    success {
+      echo "Build succeeded."
+    }
+  }
+}
